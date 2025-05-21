@@ -1,63 +1,68 @@
--- CASO DE ESTUDIO: PLANIFICACIÓN DE ASIGNACIÓN DE VOLUNTARIOS PARA UN NUEVO EVENTO
-
-WITH EventoNuevo AS (
-    -- 1. Seleccionar el evento más reciente (puede ser el nuevo)
-    SELECT e.id_evento, e.nombre AS nombre_evento, e.id_proyecto, e.fecha_inicio, e.fecha_fin
-    FROM Eventos e
-    WHERE e.estado = TRUE
-    ORDER BY e.fecha_inicio DESC
-    LIMIT 1
-),
-ProyectoDelEvento AS (
-    -- 2. Obtener detalles del proyecto asociado al evento
-    SELECT p.id_proyecto, p.nombre AS nombre_proyecto
-    FROM Proyectos p
-    INNER JOIN EventoNuevo ev ON ev.id_proyecto = p.id_proyecto
-    WHERE p.estado = TRUE
-),
-HabilidadesNecesarias AS (
-    -- 3. Definir habilidades necesarias para este evento (por ejemplo, 'Organización')
-    SELECT th.id_tip_habilidad, th.nombre AS habilidad_requerida
-    FROM TiposHabilidad th
-    WHERE th.nombre ILIKE 'Organización' AND th.estado = TRUE
-),
-VoluntariosConHabilidad AS (
-    -- 4. Voluntarios que tienen la habilidad necesaria con al menos 2 años de experiencia
-    SELECT hv.id_voluntario, hv.id_tip_habilidad, hv.nivel, hv.años_experiencia
+WITH HabilidadesVoluntarios AS (
+    SELECT 
+        hv.id_voluntario,
+        STRING_AGG(th.nombre || ' (' || hv.nivel || ')', ', ') AS habilidades
     FROM HabilidadesVoluntario hv
-    INNER JOIN HabilidadesNecesarias hn ON hn.id_tip_habilidad = hv.id_tip_habilidad
-    WHERE hv.estado = TRUE AND hv.años_experiencia >= 2
+    JOIN TiposHabilidad th ON hv.id_tip_habilidad = th.id_tip_habilidad
+    WHERE hv.estado = TRUE AND th.estado = TRUE
+    GROUP BY hv.id_voluntario
 ),
-DisponibilidadCompatible AS (
-    -- 5. Filtrar voluntarios con disponibilidad en el día del evento
-    SELECT dv.id_voluntario, dv.dia_semana, dv.hora_inicio, dv.hora_fin
-    FROM DisponibilidadVoluntario dv
-    INNER JOIN EventoNuevo ev ON TO_CHAR(ev.fecha_inicio, 'Day') ILIKE dv.dia_semana || '%'
-    WHERE dv.estado = TRUE
+HorasPorVoluntarioProyecto AS (
+    SELECT 
+        id_voluntario,
+        id_proyecto,
+        SUM(horas) AS total_horas
+    FROM RegistroHoras
+    WHERE estado = TRUE
+    GROUP BY id_voluntario, id_proyecto
 ),
-VoluntariosElegibles AS (
-    -- 6. Voluntarios que cumplen con habilidades Y disponibilidad
-    SELECT DISTINCT v.id_voluntario
-    FROM VoluntariosConHabilidad v
-    INNER JOIN DisponibilidadCompatible d ON d.id_voluntario = v.id_voluntario
+EventosVoluntarios AS (
+    SELECT 
+        ie.id_voluntario,
+        COUNT(DISTINCT ie.id_evento) AS total_eventos,
+        SUM(CASE WHEN ie.asistencia THEN 1 ELSE 0 END) AS total_asistencias
+    FROM InscripcionesEvento ie
+    WHERE ie.estado = TRUE
+    GROUP BY ie.id_voluntario
 ),
-VoluntariosNoAsignados AS (
-    -- 7. Voluntarios elegibles que aún no están asignados a este proyecto
-    SELECT ve.id_voluntario
-    FROM VoluntariosElegibles ve
-    LEFT JOIN AsignacionesProyecto ap ON ap.id_voluntario = ve.id_voluntario 
-        AND ap.id_proyecto = (SELECT id_proyecto FROM ProyectoDelEvento)
-    WHERE ap.id_asignacion_proyecto IS NULL
+CausasPorProyecto AS (
+    SELECT 
+        pc.id_proyecto,
+        STRING_AGG(c.nombre, ', ') AS causas
+    FROM ProyectosCausa pc
+    JOIN Causas c ON pc.id_causa = c.id_causa
+    WHERE pc.estado = TRUE AND c.estado = TRUE
+    GROUP BY pc.id_proyecto
+),
+DonacionesPorProyecto AS (
+    SELECT 
+        d.id_proyecto,
+        SUM(d.monto) AS total_donado
+    FROM Donaciones d
+    WHERE d.estado = TRUE
+    GROUP BY d.id_proyecto
 )
-
--- RESULTADO FINAL: VOLUNTARIOS RECOMENDADOS PARA ASIGNAR AL EVENTO
 SELECT 
     v.id_voluntario,
-    v.nombre,
-    v.apellido,
+    v.nombre || ' ' || v.apellido AS nombre_completo,
     v.email,
-    v.telefono
+    v.telefono,
+    v.direccion,
+    EXTRACT(YEAR FROM AGE(CURRENT_DATE, v.fecha_nacimiento)) AS edad,
+    COALESCE(hv.habilidades, 'Sin habilidades') AS habilidades,
+    p.nombre AS proyecto_asignado,
+    COALESCE(hpp.total_horas, 0) AS horas_en_proyecto,
+    COALESCE(cp.causas, 'Sin causas') AS causas_asociadas,
+    COALESCE(dp.total_donado, 0) AS monto_total_donado,
+    COALESCE(ev.total_eventos, 0) AS eventos_inscritos,
+    COALESCE(ev.total_asistencias, 0) AS eventos_asistidos
 FROM Voluntarios v
-INNER JOIN VoluntariosNoAsignados va ON va.id_voluntario = v.id_voluntario
+LEFT JOIN AsignacionesProyecto ap ON ap.id_voluntario = v.id_voluntario AND ap.estado = TRUE
+LEFT JOIN Proyectos p ON ap.id_proyecto = p.id_proyecto AND p.estado = TRUE
+LEFT JOIN HabilidadesVoluntarios hv ON hv.id_voluntario = v.id_voluntario
+LEFT JOIN HorasPorVoluntarioProyecto hpp ON hpp.id_voluntario = v.id_voluntario AND hpp.id_proyecto = p.id_proyecto
+LEFT JOIN CausasPorProyecto cp ON cp.id_proyecto = p.id_proyecto
+LEFT JOIN DonacionesPorProyecto dp ON dp.id_proyecto = p.id_proyecto
+LEFT JOIN EventosVoluntarios ev ON ev.id_voluntario = v.id_voluntario
 WHERE v.estado = TRUE
-ORDER BY v.nombre, v.apellido;
+ORDER BY nombre_completo;
