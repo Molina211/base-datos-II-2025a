@@ -1,95 +1,70 @@
 CTE
 
-WITH asignaciones_activas AS (
-    SELECT id_proyecto, COUNT(DISTINCT id_voluntario) AS total_voluntarios
-    FROM asignacionesproyecto
-    WHERE estado = TRUE
-    GROUP BY id_proyecto
-),
-registro_horas_totales AS (
-    SELECT id_proyecto, SUM(horas) AS total_horas
-    FROM registrohoras
-    WHERE estado = TRUE
-    GROUP BY id_proyecto
-),
-proyectos_info AS (
-    SELECT p.id_proyecto, p.nombre, p.descripcion, p.id_estado_proyecto, p.estado
-    FROM proyectos p
-    WHERE p.estado = TRUE
-),
-estados_proyecto AS (
-    SELECT id_estado_proyecto, nombre
-    FROM estadosproyecto
-    WHERE estado = TRUE
-),
-proyectos_completo AS (
+WITH HabilidadesVoluntarios AS (
     SELECT 
-        p.nombre AS proyecto,
-        p.descripcion,
-        e.nombre AS estado_proyecto,
-        COALESCE(a.total_voluntarios, 0) AS total_voluntarios,
-        COALESCE(r.total_horas, 0) AS total_horas_registradas
-    FROM proyectos_info p
-    LEFT JOIN asignaciones_activas a ON p.id_proyecto = a.id_proyecto
-    LEFT JOIN registro_horas_totales r ON p.id_proyecto = r.id_proyecto
-    LEFT JOIN estados_proyecto e ON p.id_estado_proyecto = e.id_estado_proyecto
-)
-SELECT *
-FROM proyectos_completo
-ORDER BY total_voluntarios DESC, total_horas_registradas DESC
-LIMIT 5;
-
-
-WITH ProyectoInfo AS (
-    SELECT 
-        p.id_proyecto,
-        p.nombre AS nombre_proyecto,
-        c.nombre AS causa,
-        COUNT(DISTINCT ap.id_voluntario) AS total_voluntarios
-    FROM Proyectos p
-    JOIN ProyectosCausa pc ON p.id_proyecto = pc.id_proyecto
-    JOIN Causas c ON pc.id_causa = c.id_causa
-    JOIN AsignacionesProyecto ap ON p.id_proyecto = ap.id_proyecto
-    WHERE p.estado = TRUE AND pc.estado = TRUE
-    GROUP BY p.id_proyecto, p.nombre, c.nombre
+        hv.id_voluntario,
+        STRING_AGG(th.nombre || ' (' || hv.nivel || ')', ', ') AS habilidades
+    FROM HabilidadesVoluntario hv
+    JOIN TiposHabilidad th ON hv.id_tip_habilidad = th.id_tip_habilidad
+    WHERE hv.estado = TRUE AND th.estado = TRUE
+    GROUP BY hv.id_voluntario
 ),
-HorasTotales AS (
+HorasPorVoluntarioProyecto AS (
     SELECT 
-        id_proyecto, 
+        id_voluntario,
+        id_proyecto,
         SUM(horas) AS total_horas
     FROM RegistroHoras
     WHERE estado = TRUE
-    GROUP BY id_proyecto
-)
-SELECT 
-    pi.nombre_proyecto,
-    pi.causa,
-    pi.total_voluntarios,
-    COALESCE(ht.total_horas, 0) AS total_horas
-FROM ProyectoInfo pi
-LEFT JOIN HorasTotales ht ON pi.id_proyecto = ht.id_proyecto;
-
-
-
-
-WITH ProyectoCausas AS (
-    SELECT 
-        p.id_proyecto,
-        c.nombre AS causa
-    FROM Proyectos p
-    JOIN ProyectosCausa pc ON p.id_proyecto = pc.id_proyecto
-    JOIN Causas c ON pc.id_causa = c.id_causa
-    WHERE pc.estado = TRUE
+    GROUP BY id_voluntario, id_proyecto
 ),
-DonacionesAgrupadas AS (
+EventosVoluntarios AS (
     SELECT 
-        dc.causa,
-        COUNT(DISTINCT d.id_donante) AS donantes_unicos,
+        ie.id_voluntario,
+        COUNT(DISTINCT ie.id_evento) AS total_eventos,
+        SUM(CASE WHEN ie.asistencia THEN 1 ELSE 0 END) AS total_asistencias
+    FROM InscripcionesEvento ie
+    WHERE ie.estado = TRUE
+    GROUP BY ie.id_voluntario
+),
+CausasPorProyecto AS (
+    SELECT 
+        pc.id_proyecto,
+        STRING_AGG(c.nombre, ', ') AS causas
+    FROM ProyectosCausa pc
+    JOIN Causas c ON pc.id_causa = c.id_causa
+    WHERE pc.estado = TRUE AND c.estado = TRUE
+    GROUP BY pc.id_proyecto
+),
+DonacionesPorProyecto AS (
+    SELECT 
+        d.id_proyecto,
         SUM(d.monto) AS total_donado
     FROM Donaciones d
-    JOIN ProyectoCausas dc ON d.id_proyecto = dc.id_proyecto
     WHERE d.estado = TRUE
-    GROUP BY dc.causa
+    GROUP BY d.id_proyecto
 )
-SELECT * FROM DonacionesAgrupadas
-ORDER BY total_donado DESC;
+SELECT 
+    v.id_voluntario,
+    v.nombre || ' ' || v.apellido AS nombre_completo,
+    v.email,
+    v.telefono,
+    v.direccion,
+    EXTRACT(YEAR FROM AGE(CURRENT_DATE, v.fecha_nacimiento)) AS edad,
+    COALESCE(hv.habilidades, 'Sin habilidades') AS habilidades,
+    p.nombre AS proyecto_asignado,
+    COALESCE(hpp.total_horas, 0) AS horas_en_proyecto,
+    COALESCE(cp.causas, 'Sin causas') AS causas_asociadas,
+    COALESCE(dp.total_donado, 0) AS monto_total_donado,
+    COALESCE(ev.total_eventos, 0) AS eventos_inscritos,
+    COALESCE(ev.total_asistencias, 0) AS eventos_asistidos
+FROM Voluntarios v
+LEFT JOIN AsignacionesProyecto ap ON ap.id_voluntario = v.id_voluntario AND ap.estado = TRUE
+LEFT JOIN Proyectos p ON ap.id_proyecto = p.id_proyecto AND p.estado = TRUE
+LEFT JOIN HabilidadesVoluntarios hv ON hv.id_voluntario = v.id_voluntario
+LEFT JOIN HorasPorVoluntarioProyecto hpp ON hpp.id_voluntario = v.id_voluntario AND hpp.id_proyecto = p.id_proyecto
+LEFT JOIN CausasPorProyecto cp ON cp.id_proyecto = p.id_proyecto
+LEFT JOIN DonacionesPorProyecto dp ON dp.id_proyecto = p.id_proyecto
+LEFT JOIN EventosVoluntarios ev ON ev.id_voluntario = v.id_voluntario
+WHERE v.estado = TRUE
+ORDER BY nombre_completo;
