@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Obtener un informe consolidado de **voluntarios activos** en la organización, incluyendo información clave sobre sus **datos personales**, **habilidades**, **proyectos asignados**, **horas de participación**, **eventos**, **causas involucradas** y el **monto total de donaciones** que han recibido los proyectos donde participan.
+Generar un informe detallado sobre los **voluntarios activos** en la organización, integrando información clave como sus **datos personales**, **habilidades**, **proyectos asignados**, **horas de trabajo**, **eventos en los que participan**, **causas sociales asociadas** y el **monto de donaciones** recibidas por los proyectos en los que colaboran.
 
 ---
 
@@ -10,41 +10,63 @@ Obtener un informe consolidado de **voluntarios activos** en la organización, i
 
 Esta consulta permite:
 
-- Visualizar la **participación integral de cada voluntario**.
-- Relacionar la actividad del voluntario con **causas sociales y donaciones**.
-- Identificar perfiles más comprometidos (por horas, eventos y habilidades).
-- Apoyar decisiones sobre **asignación de recursos humanos y financieros**.
-- Usarse como base para generar reportes ejecutivos o dashboards en BI.
+- Visualizar la **participación integral** de cada voluntario dentro de la organización.
+- Relacionar su actividad con **causas sociales** y los **fondos recaudados**.
+- Identificar voluntarios con mayor compromiso, según **horas**, **asistencias** y **habilidades**.
+- Respaldar la toma de decisiones en **gestión del voluntariado** y **asignación de recursos**.
+- Ser fuente de datos para **reportes ejecutivos** y **dashboards en herramientas BI**.
 
 ---
 
 ## Explicación General de la Consulta (CTE)
 
-La consulta se compone de varios **Common Table Expressions (CTEs)** que organizan la información por capas:
+Esta consulta está organizada en múltiples **Common Table Expressions (CTEs)** que estructuran la información paso a paso:
 
 ### 1. `HabilidadesVoluntarios`
 
-Une las tablas `HabilidadesVoluntario` y `TiposHabilidad` para listar las habilidades activas de cada voluntario, incluyendo el nivel, usando `STRING_AGG`.
+Consolida las habilidades activas de cada voluntario usando `STRING_AGG` para combinarlas en una sola cadena:
+
+- **Fuente:** `HabilidadesVoluntario`, `TiposHabilidad`.
+- **Criterio:** Solo habilidades y tipos activos (`estado = TRUE`).
 
 ### 2. `HorasPorVoluntarioProyecto`
 
-Suma las horas trabajadas por cada voluntario en los proyectos registrados en `RegistroHoras`.
+Calcula la **suma total de horas** trabajadas por cada voluntario en los proyectos:
+
+- **Fuente:** `RegistroHoras`.
+- **Agrupación:** por `id_voluntario` y `id_proyecto`.
 
 ### 3. `EventosVoluntarios`
 
-Cuenta los eventos a los que se ha inscrito cada voluntario (`InscripcionesEvento`) y cuántos asistió efectivamente (`asistencia = TRUE`).
+Determina la participación en eventos:
+
+- Cuenta eventos inscritos (`total_eventos`).
+- Suma eventos con asistencia efectiva (`total_asistencias`).
+- **Fuente:** `InscripcionesEvento`.
 
 ### 4. `CausasPorProyecto`
 
-Agrupa las causas sociales asociadas a cada proyecto a través de la relación `ProyectosCausa`.
+Relaciona los proyectos con sus respectivas **causas sociales**, consolidándolas:
+
+- **Fuente:** `ProyectosCausa`, `Causas`.
+- Solo relaciones activas.
 
 ### 5. `DonacionesPorProyecto`
 
-Suma el total donado a cada proyecto según los registros activos en la tabla `Donaciones`.
+Suma el **total de donaciones recibidas** por cada proyecto:
 
-### Consulta Final (SELECT)
+- **Fuente:** `Donaciones`.
+- Agrupado por `id_proyecto`, considerando solo registros activos.
 
-Une toda la información anterior usando `LEFT JOIN` para no perder voluntarios aunque no tengan todos los datos. Usa `COALESCE` para mostrar valores por defecto cuando no hay datos relacionados.
+---
+
+## Consulta Final (SELECT)
+
+En la consulta principal:
+
+- Se integran todas las CTEs mediante `LEFT JOIN` para **preservar voluntarios sin datos relacionados**.
+- Se usa `COALESCE` para definir **valores por defecto** en los campos nulos.
+- El resultado muestra un perfil completo por voluntario: datos personales, habilidades, proyecto asignado, horas, causas, eventos y donaciones.
 
 ---
 
@@ -119,15 +141,3 @@ LEFT JOIN DonacionesPorProyecto dp ON dp.id_proyecto = p.id_proyecto
 LEFT JOIN EventosVoluntarios ev ON ev.id_voluntario = v.id_voluntario
 WHERE v.estado = TRUE
 ORDER BY nombre_completo;
-```
-
-## Conclusión
-
-Esta consulta proporciona una **visión integral y estructurada** de la participación de cada voluntario en la organización.  
-Su diseño modular con **CTEs (Common Table Expressions)** mejora la **claridad**, la **reutilización** y el **mantenimiento** del código SQL.  
-
-Además, es ideal para:
-
-- Generar **dashboards de impacto social**.
-- Realizar **auditorías de participación y desempeño**.
-- Apoyar la **toma de decisiones estratégicas** en temas de voluntariado, eventos y recaudación de fondos.
